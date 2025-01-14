@@ -55,7 +55,8 @@
   "buildPresets": [
     {
       "name": "Default",
-      "configurePreset": "Default"
+      "configurePreset": "Default",
+      "targets": [ "ggml-cpu" ]
     },
     {
       "name": "CUDA",
