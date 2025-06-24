@@ -182,6 +182,12 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		return
 	}
 
+	// validate top_logprobs range
+	if vErr := opts.ValidateLogProbs(); vErr != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, openai.NewError(http.StatusBadRequest, vErr.Error()))
+		return
+	}
+
 	checkpointLoaded := time.Now()
 
 	// load the model
@@ -1440,6 +1446,12 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		return
 	} else if err != nil {
 		handleScheduleError(c, req.Model, err)
+		return
+	}
+
+	// validate top_logprobs range
+	if vErr := opts.ValidateLogProbs(); vErr != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, openai.NewError(http.StatusBadRequest, vErr.Error()))
 		return
 	}
 

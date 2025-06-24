@@ -603,7 +603,8 @@ type CompletionResponse struct {
 
 func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 	var req CompletionRequest
-	req.Options = Options(api.DefaultOptions())
+	// initialize default inference options (use zero value; defaults applied downstream)
+	req.Options = Options{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return

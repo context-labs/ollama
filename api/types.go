@@ -251,6 +251,25 @@ type Options struct {
 	TopLogProbs     int  `json:"top_logprobs,omitempty"`
 }
 
+// ValidateLogProbs verifies that any logprob-related settings are in a valid
+// range. The OpenAI API caps top_logprobs at 5, we follow the same limit.
+// If LogProbsEnabled is true and TopLogProbs is zero, the method sets it to 1
+// (the OpenAI default) so that callers don't have to specify both fields.
+func (o *Options) ValidateLogProbs() error {
+	if !o.LogProbsEnabled {
+		return nil
+	}
+
+	if o.TopLogProbs == 0 {
+		o.TopLogProbs = 1
+	}
+
+	if o.TopLogProbs < 0 || o.TopLogProbs > 5 {
+		return fmt.Errorf("top_logprobs must be between 0 and 5")
+	}
+	return nil
+}
+
 // Runner options which must be set when the model is loaded into memory
 type Runner struct {
 	NumCtx    int   `json:"num_ctx,omitempty"`
