@@ -41,18 +41,21 @@ type Choice struct {
 	Index        int     `json:"index"`
 	Message      Message `json:"message"`
 	FinishReason *string `json:"finish_reason"`
+	Logprobs     *api.LogProbs `json:"logprobs,omitempty"`
 }
 
 type ChunkChoice struct {
 	Index        int     `json:"index"`
 	Delta        Message `json:"delta"`
 	FinishReason *string `json:"finish_reason"`
+	Logprobs     *api.LogProbs `json:"logprobs,omitempty"`
 }
 
 type CompleteChunkChoice struct {
 	Text         string  `json:"text"`
 	Index        int     `json:"index"`
 	FinishReason *string `json:"finish_reason"`
+	Logprobs     *api.LogProbs `json:"logprobs,omitempty"`
 }
 
 type Usage struct {
@@ -93,6 +96,10 @@ type ChatCompletionRequest struct {
 	TopP             *float64        `json:"top_p"`
 	ResponseFormat   *ResponseFormat `json:"response_format"`
 	Tools            []api.Tool      `json:"tools"`
+
+	// OpenAI logprob support
+	Logprobs      bool `json:"logprobs,omitempty"`
+	TopLogprobs   int  `json:"top_logprobs,omitempty"`
 }
 
 type ChatCompletion struct {
@@ -129,6 +136,10 @@ type CompletionRequest struct {
 	Temperature      *float32       `json:"temperature"`
 	TopP             float32        `json:"top_p"`
 	Suffix           string         `json:"suffix"`
+
+	// OpenAI logprob support
+	Logprobs     bool `json:"logprobs,omitempty"`
+	TopLogprobs  int  `json:"top_logprobs,omitempty"`
 }
 
 type Completion struct {
@@ -261,6 +272,7 @@ func toChatCompletion(id string, r api.ChatResponse) ChatCompletion {
 				}
 				return nil
 			}(r.DoneReason),
+			Logprobs: (*api.LogProbs)(r.LogProbs),
 		}},
 		Usage: toUsage(r),
 	}
@@ -283,6 +295,7 @@ func toChunk(id string, r api.ChatResponse) ChatCompletionChunk {
 				}
 				return nil
 			}(r.DoneReason),
+			Logprobs: (*api.LogProbs)(r.LogProbs),
 		}},
 	}
 }
@@ -311,6 +324,7 @@ func toCompletion(id string, r api.GenerateResponse) Completion {
 				}
 				return nil
 			}(r.DoneReason),
+			Logprobs: (*api.LogProbs)(r.LogProbs),
 		}},
 		Usage: toUsageGenerate(r),
 	}
@@ -332,6 +346,7 @@ func toCompleteChunk(id string, r api.GenerateResponse) CompletionChunk {
 				}
 				return nil
 			}(r.DoneReason),
+			Logprobs: (*api.LogProbs)(r.LogProbs),
 		}},
 	}
 }
@@ -503,6 +518,14 @@ func fromChatRequest(r ChatCompletionRequest) (*api.ChatRequest, error) {
 		options["top_p"] = 1.0
 	}
 
+	// Logprob related options
+	if r.Logprobs {
+		options["logprobs"] = true
+	}
+	if r.TopLogprobs > 0 {
+		options["top_logprobs"] = r.TopLogprobs
+	}
+
 	var format json.RawMessage
 	if r.ResponseFormat != nil {
 		switch strings.ToLower(strings.TrimSpace(r.ResponseFormat.Type)) {
@@ -566,6 +589,14 @@ func fromCompleteRequest(r CompletionRequest) (api.GenerateRequest, error) {
 		options["top_p"] = r.TopP
 	} else {
 		options["top_p"] = 1.0
+	}
+
+	// logprobs
+	if r.Logprobs {
+		options["logprobs"] = true
+	}
+	if r.TopLogprobs > 0 {
+		options["top_logprobs"] = r.TopLogprobs
 	}
 
 	return api.GenerateRequest{

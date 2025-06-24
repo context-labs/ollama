@@ -311,6 +311,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					EvalCount:          cr.EvalCount,
 					EvalDuration:       cr.EvalDuration,
 				},
+				LogProbs: cr.LogProbs,
 			}
 
 			if _, err := sb.WriteString(cr.Content); err != nil {
@@ -1492,6 +1493,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					EvalCount:          r.EvalCount,
 					EvalDuration:       r.EvalDuration,
 				},
+				LogProbs: r.LogProbs,
 			}
 
 			if r.Done {

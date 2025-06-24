@@ -192,7 +192,11 @@ type ChatResponse struct {
 
 	Done bool `json:"done"`
 
+	// Metrics contains timing and token usage details
 	Metrics
+
+	// LogProbs optionally contains token-level log probability information
+	LogProbs *LogProbs `json:"logprobs,omitempty"`
 }
 
 type Metrics struct {
@@ -202,6 +206,21 @@ type Metrics struct {
 	PromptEvalDuration time.Duration `json:"prompt_eval_duration,omitempty"`
 	EvalCount          int           `json:"eval_count,omitempty"`
 	EvalDuration       time.Duration `json:"eval_duration,omitempty"`
+}
+
+// LogProbs represents token-level log probability data returned by the model
+// following the schema used by the OpenAI API.
+type LogProbs struct {
+	// TokenLogprobs is the log probability of each returned token in `Tokens`.
+	TokenLogprobs []float64 `json:"token_logprobs"`
+	// Tokens are the textual tokens that were generated.
+	Tokens        []string  `json:"tokens"`
+	// TokenIDs are the token IDs corresponding to `Tokens`.
+	TokenIDs      []int     `json:"token_ids"`
+	// TopLogprobs, if requested, gives the top-n log probabilities for each
+	// generated token. Each entry is a map from the candidate token string to
+	// its log probability.
+	TopLogprobs   []map[string]float64 `json:"top_logprobs,omitempty"`
 }
 
 // Options specified in [GenerateRequest].  If you add a new option here, also
@@ -226,6 +245,10 @@ type Options struct {
 	MirostatTau      float32  `json:"mirostat_tau,omitempty"`
 	MirostatEta      float32  `json:"mirostat_eta,omitempty"`
 	Stop             []string `json:"stop,omitempty"`
+
+	// Experimental: enable return of token log probabilities
+	LogProbsEnabled bool `json:"logprobs,omitempty"`
+	TopLogProbs     int  `json:"top_logprobs,omitempty"`
 }
 
 // Runner options which must be set when the model is loaded into memory
@@ -453,6 +476,9 @@ type GenerateResponse struct {
 	Context []int `json:"context,omitempty"`
 
 	Metrics
+
+	// LogProbs optionally contains token-level probability data.
+	LogProbs *LogProbs `json:"logprobs,omitempty"`
 }
 
 // ModelDetails provides details about a model.

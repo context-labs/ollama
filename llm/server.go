@@ -648,6 +648,14 @@ type completion struct {
 	Stop         bool   `json:"stop"`
 	StoppedLimit bool   `json:"stopped_limit"`
 
+	// Log probability information returned by the server (if requested)
+	Logprobs struct {
+		Tokens        []string             `json:"tokens"`
+		TokenIDs      []int                `json:"token_ids"`
+		TokenLogprobs []float64            `json:"token_logprobs"`
+		TopLogprobs   []map[string]float64 `json:"top_logprobs,omitempty"`
+	} `json:"logprobs,omitempty"`
+
 	Timings struct {
 		PredictedN  int     `json:"predicted_n"`
 		PredictedMS float64 `json:"predicted_ms"`
@@ -671,6 +679,9 @@ type CompletionResponse struct {
 	PromptEvalDuration time.Duration
 	EvalCount          int
 	EvalDuration       time.Duration
+
+	// Optional logprobs
+	LogProbs *api.LogProbs
 }
 
 func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn func(CompletionResponse)) error {
@@ -696,6 +707,14 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 		"stop":              req.Options.Stop,
 		"image_data":        req.Images,
 		"cache_prompt":      true,
+	}
+
+	// logprobs integration
+	if req.Options.LogProbsEnabled {
+		request["logprobs"] = true
+	}
+	if req.Options.TopLogProbs > 0 {
+		request["top_logprobs"] = req.Options.TopLogProbs
 	}
 
 	if len(req.Format) > 0 {
@@ -818,8 +837,18 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 			}
 
 			if c.Content != "" {
+				var lp *api.LogProbs
+				if len(c.Logprobs.Tokens) > 0 || len(c.Logprobs.TokenIDs) > 0 {
+					lp = &api.LogProbs{
+						Tokens:        c.Logprobs.Tokens,
+						TokenIDs:      c.Logprobs.TokenIDs,
+						TokenLogprobs: c.Logprobs.TokenLogprobs,
+						TopLogprobs:   c.Logprobs.TopLogprobs,
+					}
+				}
 				fn(CompletionResponse{
 					Content: c.Content,
+					LogProbs: lp,
 				})
 			}
 
@@ -836,6 +865,7 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 					PromptEvalDuration: parseDurationMs(c.Timings.PromptMS),
 					EvalCount:          c.Timings.PredictedN,
 					EvalDuration:       parseDurationMs(c.Timings.PredictedMS),
+					LogProbs:           nil,
 				})
 				return nil
 			}
