@@ -654,13 +654,28 @@ type completion struct {
 		PromptN     int     `json:"prompt_n"`
 		PromptMS    float64 `json:"prompt_ms"`
 	}
+
+	// Log probabilities
+	CompletionProbabilities []completionLogProbs `json:"completion_probabilities"`
+}
+
+type completionLogProbs struct {
+	Content string              `json:"content"`
+	Probs   []completionTokenProb `json:"probs"`
+}
+
+type completionTokenProb struct {
+	Token   string  `json:"tok_str"`
+	LogProb float64 `json:"prob"`
 }
 
 type CompletionRequest struct {
-	Prompt  string
-	Format  json.RawMessage
-	Images  []ImageData
-	Options *api.Options
+	Prompt      string
+	Format      json.RawMessage
+	Images      []ImageData
+	Options     *api.Options
+	LogProbs    bool
+	TopLogProbs int
 }
 
 type CompletionResponse struct {
@@ -671,6 +686,7 @@ type CompletionResponse struct {
 	PromptEvalDuration time.Duration
 	EvalCount          int
 	EvalDuration       time.Duration
+	LogProbs           []completionLogProbs
 }
 
 func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn func(CompletionResponse)) error {
@@ -696,6 +712,17 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 		"stop":              req.Options.Stop,
 		"image_data":        req.Images,
 		"cache_prompt":      true,
+	}
+
+	// Add log probabilities parameters if requested
+	if req.LogProbs {
+		nProbs := req.TopLogProbs
+		if nProbs <= 0 {
+			nProbs = 1
+		} else if nProbs > 5 {
+			nProbs = 5
+		}
+		request["n_probs"] = nProbs
 	}
 
 	if len(req.Format) > 0 {
@@ -818,9 +845,14 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 			}
 
 			if c.Content != "" {
-				fn(CompletionResponse{
+				resp := CompletionResponse{
 					Content: c.Content,
-				})
+				}
+				// Include log probabilities if available
+				if len(c.CompletionProbabilities) > 0 {
+					resp.LogProbs = c.CompletionProbabilities
+				}
+				fn(resp)
 			}
 
 			if c.Stop {
@@ -829,14 +861,19 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 					doneReason = "length"
 				}
 
-				fn(CompletionResponse{
+				resp := CompletionResponse{
 					Done:               true,
 					DoneReason:         doneReason,
 					PromptEvalCount:    c.Timings.PromptN,
 					PromptEvalDuration: parseDurationMs(c.Timings.PromptMS),
 					EvalCount:          c.Timings.PredictedN,
 					EvalDuration:       parseDurationMs(c.Timings.PredictedMS),
-				})
+				}
+				// Include log probabilities if available
+				if len(c.CompletionProbabilities) > 0 {
+					resp.LogProbs = c.CompletionProbabilities
+				}
+				fn(resp)
 				return nil
 			}
 		}

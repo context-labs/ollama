@@ -127,6 +127,22 @@ type Message struct {
 	Content   string      `json:"content"`
 	Images    []ImageData `json:"images,omitempty"`
 	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
+	LogProbs  []LogProb   `json:"logprobs,omitempty"`
+}
+
+// LogProb represents log probability information for a token
+type LogProb struct {
+	Token       string        `json:"token"`
+	LogProb     float64       `json:"logprob"`
+	Bytes       []int         `json:"bytes,omitempty"`
+	TopLogProbs []TopLogProb  `json:"top_logprobs,omitempty"`
+}
+
+// TopLogProb represents a top log probability candidate
+type TopLogProb struct {
+	Token   string  `json:"token"`
+	LogProb float64 `json:"logprob"`
+	Bytes   []int   `json:"bytes,omitempty"`
 }
 
 func (m *Message) UnmarshalJSON(b []byte) error {

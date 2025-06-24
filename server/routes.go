@@ -1469,17 +1469,37 @@ func (s *Server) ChatHandler(c *gin.Context) {
 
 	slog.Debug("chat request", "images", len(images), "prompt", prompt)
 
+	// Check if log probabilities were requested (from OpenAI compatibility layer)
+	logProbs := false
+	topLogProbs := 0
+	if lp, exists := c.Get("logprobs"); exists {
+		if lpBool, ok := lp.(bool); ok {
+			logProbs = lpBool
+		}
+	}
+	if tlp, exists := c.Get("top_logprobs"); exists {
+		if tlpInt, ok := tlp.(int); ok {
+			topLogProbs = tlpInt
+		}
+	}
+
 	ch := make(chan any)
 	go func() {
 		defer close(ch)
 		var sb strings.Builder
 		var toolCallIndex int = 0
-		if err := r.Completion(c.Request.Context(), llm.CompletionRequest{
-			Prompt:  prompt,
-			Images:  images,
-			Format:  req.Format,
-			Options: opts,
-		}, func(r llm.CompletionResponse) {
+		
+		// Create completion request with log probabilities if requested
+		completionReq := llm.CompletionRequest{
+			Prompt:      prompt,
+			Images:      images,
+			Format:      req.Format,
+			Options:     opts,
+			LogProbs:    logProbs,
+			TopLogProbs: topLogProbs,
+		}
+		
+		if err := r.Completion(c.Request.Context(), completionReq, func(r llm.CompletionResponse) {
 			res := api.ChatResponse{
 				Model:      req.Model,
 				CreatedAt:  time.Now().UTC(),
@@ -1492,6 +1512,30 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					EvalCount:          r.EvalCount,
 					EvalDuration:       r.EvalDuration,
 				},
+			}
+
+			// Convert log probabilities from llama.cpp format to API format
+			if len(r.LogProbs) > 0 && logProbs {
+				res.Message.LogProbs = make([]api.LogProb, 0)
+				for _, lp := range r.LogProbs {
+					for _, prob := range lp.Probs {
+						apiLogProb := api.LogProb{
+							Token:   prob.Token,
+							LogProb: prob.LogProb,
+						}
+						
+						// Convert token to bytes
+						apiLogProb.Bytes = []int{}
+						for _, b := range []byte(prob.Token) {
+							apiLogProb.Bytes = append(apiLogProb.Bytes, int(b))
+						}
+						
+						// Note: Top log probs would need to be handled here if llama.cpp provides them
+						// For now, we just include the single token probability
+						
+						res.Message.LogProbs = append(res.Message.LogProbs, apiLogProb)
+					}
+				}
 			}
 
 			if r.Done {

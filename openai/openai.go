@@ -38,15 +38,17 @@ type Message struct {
 }
 
 type Choice struct {
-	Index        int     `json:"index"`
-	Message      Message `json:"message"`
-	FinishReason *string `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Message      Message   `json:"message"`
+	FinishReason *string   `json:"finish_reason"`
+	LogProbs     *LogProbs `json:"logprobs,omitempty"`
 }
 
 type ChunkChoice struct {
-	Index        int     `json:"index"`
-	Delta        Message `json:"delta"`
-	FinishReason *string `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Delta        Message   `json:"delta"`
+	FinishReason *string   `json:"finish_reason"`
+	LogProbs     *LogProbs `json:"logprobs,omitempty"`
 }
 
 type CompleteChunkChoice struct {
@@ -59,6 +61,23 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type LogProbToken struct {
+	Token   string   `json:"token"`
+	LogProb float64  `json:"logprob"`
+	Bytes   []int    `json:"bytes,omitempty"`
+}
+
+type LogProbs struct {
+	Content []LogProbContent `json:"content"`
+}
+
+type LogProbContent struct {
+	Token       string         `json:"token"`
+	LogProb     float64        `json:"logprob"`
+	Bytes       []int          `json:"bytes,omitempty"`
+	TopLogProbs []LogProbToken `json:"top_logprobs,omitempty"`
 }
 
 type ResponseFormat struct {
@@ -93,6 +112,8 @@ type ChatCompletionRequest struct {
 	TopP             *float64        `json:"top_p"`
 	ResponseFormat   *ResponseFormat `json:"response_format"`
 	Tools            []api.Tool      `json:"tools"`
+	LogProbs         bool            `json:"logprobs"`
+	TopLogProbs      *int            `json:"top_logprobs"`
 }
 
 type ChatCompletion struct {
@@ -243,47 +264,107 @@ func toToolCalls(tc []api.ToolCall) []ToolCall {
 
 func toChatCompletion(id string, r api.ChatResponse) ChatCompletion {
 	toolCalls := toToolCalls(r.Message.ToolCalls)
+	
+	// Create the choice with the message
+	choice := Choice{
+		Index:   0,
+		Message: Message{Role: r.Message.Role, Content: r.Message.Content, ToolCalls: toolCalls},
+		FinishReason: func(reason string) *string {
+			if len(toolCalls) > 0 {
+				reason = "tool_calls"
+			}
+			if len(reason) > 0 {
+				return &reason
+			}
+			return nil
+		}(r.DoneReason),
+	}
+	
+	// Add log probabilities if available
+	if len(r.Message.LogProbs) > 0 {
+		logProbs := &LogProbs{
+			Content: make([]LogProbContent, len(r.Message.LogProbs)),
+		}
+		for i, lp := range r.Message.LogProbs {
+			logProbs.Content[i] = LogProbContent{
+				Token:   lp.Token,
+				LogProb: lp.LogProb,
+				Bytes:   lp.Bytes,
+			}
+			// Add top log probs if available
+			if len(lp.TopLogProbs) > 0 {
+				logProbs.Content[i].TopLogProbs = make([]LogProbToken, len(lp.TopLogProbs))
+				for j, tlp := range lp.TopLogProbs {
+					logProbs.Content[i].TopLogProbs[j] = LogProbToken{
+						Token:   tlp.Token,
+						LogProb: tlp.LogProb,
+						Bytes:   tlp.Bytes,
+					}
+				}
+			}
+		}
+		choice.LogProbs = logProbs
+	}
+	
 	return ChatCompletion{
 		Id:                id,
 		Object:            "chat.completion",
 		Created:           r.CreatedAt.Unix(),
 		Model:             r.Model,
 		SystemFingerprint: "fp_ollama",
-		Choices: []Choice{{
-			Index:   0,
-			Message: Message{Role: r.Message.Role, Content: r.Message.Content, ToolCalls: toolCalls},
-			FinishReason: func(reason string) *string {
-				if len(toolCalls) > 0 {
-					reason = "tool_calls"
-				}
-				if len(reason) > 0 {
-					return &reason
-				}
-				return nil
-			}(r.DoneReason),
-		}},
-		Usage: toUsage(r),
+		Choices:           []Choice{choice},
+		Usage:             toUsage(r),
 	}
 }
 
 func toChunk(id string, r api.ChatResponse) ChatCompletionChunk {
 	toolCalls := toToolCalls(r.Message.ToolCalls)
+	
+	// Create the chunk choice
+	choice := ChunkChoice{
+		Index: 0,
+		Delta: Message{Role: "assistant", Content: r.Message.Content, ToolCalls: toolCalls},
+		FinishReason: func(reason string) *string {
+			if len(reason) > 0 {
+				return &reason
+			}
+			return nil
+		}(r.DoneReason),
+	}
+	
+	// Add log probabilities if available
+	if len(r.Message.LogProbs) > 0 {
+		logProbs := &LogProbs{
+			Content: make([]LogProbContent, len(r.Message.LogProbs)),
+		}
+		for i, lp := range r.Message.LogProbs {
+			logProbs.Content[i] = LogProbContent{
+				Token:   lp.Token,
+				LogProb: lp.LogProb,
+				Bytes:   lp.Bytes,
+			}
+			// Add top log probs if available
+			if len(lp.TopLogProbs) > 0 {
+				logProbs.Content[i].TopLogProbs = make([]LogProbToken, len(lp.TopLogProbs))
+				for j, tlp := range lp.TopLogProbs {
+					logProbs.Content[i].TopLogProbs[j] = LogProbToken{
+						Token:   tlp.Token,
+						LogProb: tlp.LogProb,
+						Bytes:   tlp.Bytes,
+					}
+				}
+			}
+		}
+		choice.LogProbs = logProbs
+	}
+	
 	return ChatCompletionChunk{
 		Id:                id,
 		Object:            "chat.completion.chunk",
 		Created:           time.Now().Unix(),
 		Model:             r.Model,
 		SystemFingerprint: "fp_ollama",
-		Choices: []ChunkChoice{{
-			Index: 0,
-			Delta: Message{Role: "assistant", Content: r.Message.Content, ToolCalls: toolCalls},
-			FinishReason: func(reason string) *string {
-				if len(reason) > 0 {
-					return &reason
-				}
-				return nil
-			}(r.DoneReason),
-		}},
+		Choices:           []ChunkChoice{choice},
 	}
 }
 
@@ -585,6 +666,8 @@ type ChatWriter struct {
 	stream        bool
 	streamOptions *StreamOptions
 	id            string
+	logProbs      bool
+	topLogProbs   int
 	BaseWriter
 }
 
@@ -970,11 +1053,23 @@ func ChatMiddleware() gin.HandlerFunc {
 
 		c.Request.Body = io.NopCloser(&b)
 
+		// Handle topLogProbs default value
+		topLogProbs := 0
+		if req.TopLogProbs != nil {
+			topLogProbs = *req.TopLogProbs
+		}
+
+		// Store log probabilities settings in context for the handler to use
+		c.Set("logprobs", req.LogProbs)
+		c.Set("top_logprobs", topLogProbs)
+
 		w := &ChatWriter{
 			BaseWriter:    BaseWriter{ResponseWriter: c.Writer},
 			stream:        req.Stream,
 			id:            fmt.Sprintf("chatcmpl-%d", rand.Intn(999)),
 			streamOptions: req.StreamOptions,
+			logProbs:      req.LogProbs,
+			topLogProbs:   topLogProbs,
 		}
 
 		c.Writer = w
