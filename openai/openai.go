@@ -616,6 +616,8 @@ type ChatWriter struct {
 	stream        bool
 	streamOptions *StreamOptions
 	id            string
+	summary       *api.LogProbs
+	summarySent   bool
 	BaseWriter
 }
 
@@ -623,6 +625,8 @@ type CompleteWriter struct {
 	stream        bool
 	streamOptions *StreamOptions
 	id            string
+	summary     *api.LogProbs
+	summarySent bool
 	BaseWriter
 }
 
@@ -665,7 +669,23 @@ func (w *ChatWriter) writeResponse(data []byte) (int, error) {
 
 	// chat chunk
 	if w.stream {
+		// aggregate logprobs if present
+		if chatResponse.LogProbs != nil {
+			if w.summary == nil {
+				// shallow copy
+				lp := *chatResponse.LogProbs
+				w.summary = &lp
+			} else {
+				w.summary.Tokens = append(w.summary.Tokens, chatResponse.LogProbs.Tokens...)
+				w.summary.TokenLogprobs = append(w.summary.TokenLogprobs, chatResponse.LogProbs.TokenLogprobs...)
+				w.summary.TokenIDs = append(w.summary.TokenIDs, chatResponse.LogProbs.TokenIDs...)
+				w.summary.TopLogprobs = append(w.summary.TopLogprobs, chatResponse.LogProbs.TopLogprobs...)
+			}
+		}
+
 		c := toChunk(w.id, chatResponse)
+		// do not include logprobs in individual token chunks per OpenAI schema
+		c.Choices[0].Logprobs = nil
 		d, err := json.Marshal(c)
 		if err != nil {
 			return 0, err
@@ -678,6 +698,22 @@ func (w *ChatWriter) writeResponse(data []byte) (int, error) {
 		}
 
 		if chatResponse.Done {
+			// send summary chunk with logprobs before DONE
+			if !w.summarySent && w.summary != nil {
+				c.Choices = []ChunkChoice{{
+					Index: 0,
+					Delta: Message{},
+					Logprobs: (*api.LogProbs)(w.summary),
+				}}
+				c.Usage = nil
+				dsummary, _ := json.Marshal(c)
+				_, err = w.ResponseWriter.Write([]byte(fmt.Sprintf("data: %s\n\n", dsummary)))
+				if err != nil {
+					return 0, err
+				}
+				w.summarySent = true
+			}
+
 			if w.streamOptions != nil && w.streamOptions.IncludeUsage {
 				u := toUsage(chatResponse)
 				c.Usage = &u
@@ -728,6 +764,18 @@ func (w *CompleteWriter) writeResponse(data []byte) (int, error) {
 
 	// completion chunk
 	if w.stream {
+		if generateResponse.LogProbs != nil {
+			if w.summary == nil {
+				lp := *generateResponse.LogProbs
+				w.summary = &lp
+			} else {
+				w.summary.Tokens = append(w.summary.Tokens, generateResponse.LogProbs.Tokens...)
+				w.summary.TokenLogprobs = append(w.summary.TokenLogprobs, generateResponse.LogProbs.TokenLogprobs...)
+				w.summary.TokenIDs = append(w.summary.TokenIDs, generateResponse.LogProbs.TokenIDs...)
+				w.summary.TopLogprobs = append(w.summary.TopLogprobs, generateResponse.LogProbs.TopLogprobs...)
+			}
+		}
+
 		c := toCompleteChunk(w.id, generateResponse)
 		if w.streamOptions != nil && w.streamOptions.IncludeUsage {
 			c.Usage = &Usage{}
@@ -744,6 +792,20 @@ func (w *CompleteWriter) writeResponse(data []byte) (int, error) {
 		}
 
 		if generateResponse.Done {
+			if !w.summarySent && w.summary != nil {
+				c.Choices = []CompleteChunkChoice{{
+					Index: 0,
+					Logprobs: (*api.LogProbs)(w.summary),
+				}}
+				c.Usage = nil
+				dsum, _ := json.Marshal(c)
+				_, err = w.ResponseWriter.Write([]byte(fmt.Sprintf("data: %s\n\n", dsum)))
+				if err != nil {
+					return 0, err
+				}
+				w.summarySent = true
+			}
+
 			if w.streamOptions != nil && w.streamOptions.IncludeUsage {
 				u := toUsageGenerate(generateResponse)
 				c.Usage = &u
